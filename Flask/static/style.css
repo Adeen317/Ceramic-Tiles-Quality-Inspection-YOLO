@@ -10,11 +10,16 @@ body {
 .navbar {
     margin-bottom: 20px;
     border-bottom: 2px solid #ffffff;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.5);
+    position: sticky;
+    top: 0;
+    z-index: 1000;
 }
 
 .navbar-brand {
-    font-size: 24px;
+    font-size: 28px;
     color: #ffffff !important;
+    font-weight: bold;
 }
 
 .nav-link {
@@ -22,6 +27,7 @@ body {
     border-radius: 25px;
     padding: 5px 15px;
     color: #ffffff !important;
+    transition: background-color 0.3s, color 0.3s;
 }
 
 .nav-link:hover {
