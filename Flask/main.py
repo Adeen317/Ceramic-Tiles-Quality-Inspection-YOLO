@@ -26,6 +26,14 @@ def process_image(image_path):
 
     # Invert Image
     invert1 = cv2.bitwise_not(threshold1)
+    contours, _ = cv2.findContours(invert1, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        x, y, w, h = cv2.boundingRect(contour)
+        if 5 < area < 1000:
+            cv2.rectangle(invert1, (x, y), (x + w, y + h), (255, 255, 255), 2)
+            cv2.putText(invert1, 'Spot', (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+
 
     # Model inference
     results1 = model(invert1)
