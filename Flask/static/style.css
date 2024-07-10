@@ -20,6 +20,13 @@ body {
     font-size: 28px;
     color: #ffffff !important;
     font-weight: bold;
+    display: flex;
+    align-items: center;
+}
+
+.navbar-brand .logo {
+    height: 40px;
+    margin-right: 10px;
 }
 
 .nav-link {
