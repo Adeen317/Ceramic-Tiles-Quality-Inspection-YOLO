@@ -1,101 +1,67 @@
+from flask import Flask, render_template, request, redirect, url_for
 import torch
-from matplotlib import pyplot as plt
-import numpy as np
 import cv2
-import serial
-import uuid   # Unique identifier
+import numpy as np
 import os
-import time
+import uuid
 
-# Convert resources.qrc file to resources.py for labelImg
-os.system('cd labelImg && pyrcc5 -o libs/resources.py resources.qrc')
+app = Flask(__name__)
+app.config['UPLOAD_FOLDER'] = 'static/uploads/'
+
+# Ensure the upload folder exists
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # Load the YOLOv5 model
-model = torch.hub.load('ultralytics/yolov5', 'custom', path='yolov5/runs/train/exp5/weights/best.pt', force_reload=True)
+model = torch.hub.load('ultralytics/yolov5', 'custom', path='yolov5/runs/train/exp2/weights/last.pt', force_reload=True)
 
-# Set up serial communication with Arduino
-ser = serial.Serial('COM4', 9600, timeout=1)  # Replace 'COM4' with your Arduino port
-time.sleep(2)  # Wait for the serial connection to initialize
-
-IMAGES_PATH = os.path.join('data', 'defected_images')
-IMAGES_PATH1 = os.path.join('data', 'defected_images_converted')
-
-# Ensure the directories exist
-os.makedirs(IMAGES_PATH, exist_ok=True)
-os.makedirs(IMAGES_PATH1, exist_ok=True)
-
-# Open video capture
-cap = cv2.VideoCapture(1)
-
-while cap.isOpened():
-    ret, frame = cap.read()
-
-    if not ret:
-        print("Failed to capture image")
-        break
+def process_image(image_path):
+    # Read the image
+    img = cv2.imread(image_path)
 
     # Grayscale
-    gray_frame1 = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    gray_frame1 = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
     # Thresholding
     _, threshold1 = cv2.threshold(gray_frame1, 90, 255, cv2.THRESH_BINARY)
 
     # Invert Image
     invert1 = cv2.bitwise_not(threshold1)
+    contours, _ = cv2.findContours(invert1, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        x, y, w, h = cv2.boundingRect(contour)
+        if 5 < area < 1000:
+            cv2.rectangle(invert1, (x, y), (x + w, y + h), (255, 255, 255), 2)
+            cv2.putText(invert1, 'Spot', (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 
-    # Assuming you have a model defined and loaded
+
+    # Model inference
     results1 = model(invert1)
 
-    h = np.hstack((frame, results1.render()[0]))  # Ensure correct syntax for np.hstack
-    cv2.imshow("end", h)
+    # Combine original image and detection results
+    h = np.hstack((img, results1.render()[0]))  # Ensure correct syntax for np.hstack
 
-    if ser.in_waiting > 0:  # Check if there's a message from Arduino
-        try:
-            msg = ser.readline().decode('utf-8', errors='ignore').strip()  # Read the message
-            print(f"Received message: {msg}")  # Debug print
-        except UnicodeDecodeError as e:
-            print(f"Error decoding message: {e}")
-            continue  # Skip the rest of the loop and try again
+    # Save the processed image
+    processed_image_path = os.path.join(app.config['UPLOAD_FOLDER'], 'processed_' + os.path.basename(image_path))
+    cv2.imwrite(processed_image_path, h)
 
-        if "tile is detected" in msg:  # Check if the message contains the keyword
-            imgname = os.path.join(IMAGES_PATH, f"captured_image_{time.time()}.png")
-            cv2.imwrite(imgname, frame)  # Save the captured image
-            print(f"Image saved as {imgname}")
-            ser.write(b'image captured\n')  # Send acknowledgment back to Arduino
+    return processed_image_path
 
-            # Read the saved image
-            image = cv2.imread(imgname)
+@app.route('/', methods=['GET', 'POST'])
+def index():
+    if request.method == 'POST':
+        if 'file' not in request.files:
+            return redirect(request.url)
+        file = request.files['file']
+        if file.filename == '':
+            return redirect(request.url)
+        if file:
+            filename = str(uuid.uuid4()) + '_' + file.filename
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            file.save(file_path)
+            processed_image_path = process_image(file_path)
+            return render_template('index.html', uploaded_image=file_path, processed_image=processed_image_path)
+    return render_template('index.html')
 
-            # Grayscale
-            gray_frame = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-            # Thresholding
-            _, threshold = cv2.threshold(gray_frame, 88, 255, cv2.THRESH_BINARY)
-
-            # Invert Image
-            invert = cv2.bitwise_not(threshold)
-
-            # Make detections 
-            results = model(invert)
-            
-            cv2.imshow('YOLO', np.squeeze(results.render()))
-
-            imgname1 = os.path.join(IMAGES_PATH1, f"captured_image_{time.time()}.png")
-            cv2.imwrite(imgname1, np.squeeze(results.render()))  # Save the captured image
-            print(f"Image saved as {imgname1}")
-
-            # Get the number of detected cracks
-            num_cracks = len(results.xyxy[0])
-
-            # Print message if cracks are detected
-            if num_cracks > 0:
-                print("Defect detected")
-                ser.write(b'tile is defected\n')  # Send defect signal to Arduino
-            else:
-                print("No defect detected")
-
-    if cv2.waitKey(10) & 0xFF == ord('q'):
-        break
-
-cap.release()
-cv2.destroyAllWindows()
+if __name__ == '__main__':
+    app.run(debug=True)
